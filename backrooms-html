@@ -1,0 +1,1224 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>Backrooms - Wall Arrows, 1 Enemy & Almond Water</title>
+<style>
+    html,body{height:100%;margin:0;background:#111;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:#fff}
+    canvas{background:#000;box-shadow:0 0 40px rgba(0,0,0,.8);display:block}
+    #ui{position:fixed;left:12px;top:12px;z-index:10}
+    .hint{opacity:.95;background:rgba(0,0,0,.55);padding:8px;border-radius:6px}
+    .small{font-size:12px;opacity:0.9;margin-top:6px}
+
+
+        /* Main menu styles */
+        #menu {
+          position:fixed;
+          inset:0;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:rgba(6,6,6,0.65);
+          z-index:50;
+          -webkit-backdrop-filter: blur(4px);
+          backdrop-filter: blur(4px);
+        }
+        #menuBox {
+          width:min(680px,92vw);
+          max-width:680px;
+          padding:22px;
+          background:linear-gradient(180deg,#1a1a1a,#111);
+          border:1px solid rgba(255,255,255,0.06);
+          box-shadow:0 10px 40px rgba(0,0,0,0.7);
+          border-radius:10px;
+          color:#efe7a7;
+          text-align:center;
+          font-family:sans-serif;
+        }
+        #menuBox h1 { margin:6px 0 10px; font-size:26px; color:#fff; letter-spacing:0.6px; }
+        .menuRow { display:flex;gap:10px; align-items:center; justify-content:center; margin:10px 0; flex-wrap:wrap; }
+        .menuBtn {
+          background:#efe7a7;
+          color:#231d12;
+          padding:10px 18px;
+          border-radius:8px;
+          border:0;
+          cursor:pointer;
+          font-weight:600;
+          box-shadow:0 4px 12px rgba(0,0,0,0.4);
+        }
+        .menuBtn.secondary { background:#292522; color:#efe7a7; border:1px solid rgba(255,255,255,0.04); }
+        .menuSmall { color:#cfc6a2; font-size:13px; margin-top:6px; }
+        .menuControls { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:8px; }
+        label, input { font-size:13px; color:#efe7a7; }
+        input[type="range"] { width:180px; }
+    </style>
+    </head>
+    <body>
+    <canvas id="c"></canvas>
+    <div id="ui" class="hint">
+      WASD to move, Mouse or Left/Right to turn. Click to lock pointer. Avoid enemy. R to restart.
+      <div id="soundHint" class="small">Click or press any key to enable elevator sound.</div>
+    </div>
+
+
+    <!-- Main menu overlay -->
+    <div id="menu" role="dialog" aria-modal="true">
+      <div id="menuBox">
+        <h1>BACKROOMS</h1>
+        <div class="menuSmall">Find Almond Water. Avoid the wirey figure. Press ESC to open menu in-game.</div>
+
+
+        <div class="menuRow">
+          <button id="startBtn" class="menuBtn">Start Game</button>
+          <button id="resumeBtn" class="menuBtn secondary" style="display:none">Resume</button>
+          <button id="restartBtn" class="menuBtn secondary">New Layout</button>
+          <button id="soundBtn" class="menuBtn secondary">Toggle Sound</button>
+        </div>
+
+
+        <div class="menuRow menuControls">
+          <label for="enemyCount">Enemies:</label>
+          <input id="enemyCount" type="range" min="0" max="3" value="1">
+          <span id="enemyCountVal">1</span>
+
+
+          <label for="spawnDist" style="margin-left:8px">Spawn distance:</label>
+          <input id="spawnDist" type="range" min="4" max="22" value="8">
+          <span id="spawnDistVal">8</span>
+        </div>
+
+
+        <div class="menuRow menuControls">
+          <label for="enemySpeed">Enemy speed:</label>
+          <input id="enemySpeed" type="range" min="0.6" max="4.0" step="0.1" value="1.9">
+          <span id="enemySpeedVal">1.9</span>
+
+
+          <label for="sightRange" style="margin-left:8px">Sight range:</label>
+          <input id="sightRange" type="range" min="3" max="30" step="1" value="12">
+          <span id="sightRangeVal">12</span>
+        </div>
+
+
+        <div class="menuSmall">Tip: click canvas to lock pointer after starting. Use R to restart quickly.</div>
+      </div>
+    </div>
+
+
+    <script>
+    // Backrooms - wall arrows, single enemy, scattered Almond Water items
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+
+
+    const TILE = 64;
+    // map made larger per request
+    const COLS = 60;
+    const ROWS = 45;
+    canvas.width = Math.min(window.innerWidth - 24, 1200);
+    canvas.height = Math.min(window.innerHeight - 48, 760);
+
+
+    let map = [];
+    let floorCells = [];
+
+
+    function generateMap() {
+        map = Array.from({length: ROWS}, () => Array(COLS).fill(1));
+        let x = Math.floor(COLS/2), y = Math.floor(ROWS/2);
+        map[y][x] = 0;
+        floorCells = [[x,y]];
+        const steps = COLS * ROWS * 3;
+        for (let i=0;i<steps;i++){
+            const dir = Math.floor(Math.random()*4);
+            if (dir===0 && x>1) x--;
+            if (dir===1 && x<COLS-2) x++;
+            if (dir===2 && y>1) y--;
+            if (dir===3 && y<ROWS-2) y++;
+            if (map[y][x] === 1) {
+                map[y][x] = 0;
+                floorCells.push([x,y]);
+                if (Math.random() < 0.02) {
+                    for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){
+                        const nx=x+dx, ny=y+dy;
+                        if (nx>0 && nx<COLS-1 && ny>0 && ny<ROWS-1) map[ny][nx]=0;
+                    }
+                }
+            }
+        }
+        for (let i=0;i<COLS;i++){ map[0][i]=1; map[ROWS-1][i]=1; }
+        for (let i=0;i<ROWS;i++){ map[i][0]=1; map[i][COLS-1]=1; }
+    }
+
+
+    // A* (same)
+    function findPath(sx,sy,tx,ty) {
+        if (map[ty][tx]===1) return null;
+        const key = (x,y)=>y*COLS+x;
+        const open = new Map();
+        const closed = new Set();
+        const startKey = key(sx,sy);
+        open.set(startKey, {x:sx,y:sy,g:0,f:heur(sx,sy)});
+        const cameFrom = new Map();
+        while (open.size){
+            let currentKey, current;
+            for (const [k,v] of open) {
+                if (!current || v.f < current.f) { current = v; currentKey = k; }
+            }
+            open.delete(currentKey);
+            if (current.x === tx && current.y === ty) {
+                const path = [];
+                let k = currentKey;
+                while (k !== startKey) {
+                    const [cx,cy] = kToXY(k);
+                    path.push([cx,cy]);
+                    k = cameFrom.get(k);
+                }
+                path.reverse();
+                return path;
+            }
+            closed.add(currentKey);
+            const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+            for (const [dx,dy] of dirs) {
+                const nx = current.x + dx, ny = current.y + dy;
+                if (nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+                if (map[ny][nx] === 1) continue;
+                const nk = key(nx,ny);
+                if (closed.has(nk)) continue;
+                const g = current.g + 1;
+                const existing = open.get(nk);
+                if (!existing || g < existing.g) {
+                    cameFrom.set(nk, key(current.x,current.y));
+                    open.set(nk, {x:nx,y:ny,g, f: g + heur(nx,ny)});
+                }
+            }
+        }
+        return null;
+        function heur(x,y){ return Math.abs(x-tx)+Math.abs(y-ty); }
+        function kToXY(k){ return [k % COLS, Math.floor(k / COLS)]; }
+    }
+
+
+    let player = {
+        x: Math.floor(COLS/2)+0.5,
+        y: Math.floor(ROWS/2)+0.5,
+        speed: 3.8,
+        angle: 0,
+        height: 24,
+        bob: 0,
+        almondWater: 0
+    };
+
+
+    let enemies = [];
+    let ENEMY_COUNT = 1; // adjustable via menu
+    let ENEMY_SPEED = 1.9; // base speed, adjustable
+    let SIGHT_RANGE = 12; // adjustable sight range (tiles)
+    let spawnMinDist = 8; // adjustable via menu
+    // periodic "sense" interval to avoid corner-hogging
+    const SCAN_INTERVAL = 10.0;
+    let wallArrows = new Map(); // wall-mounted arrow decals keyed by "x,y"
+    let arrows = []; // for minimap display as well (optional)
+    let stains = [];
+    let items = []; // Almond Water items
+
+
+    function generateStains(count = 100) {
+        stains = [];
+        const max = Math.min(count, Math.floor(floorCells.length * 0.45));
+        for (let i=0;i<max;i++){
+            const [cx,cy] = floorCells[Math.floor(Math.random()*floorCells.length)];
+            if (Math.abs(cx - Math.floor(player.x)) + Math.abs(cy - Math.floor(player.y)) < 3) continue;
+            const size = 0.6 + Math.random()*2.0;
+            const offx = (Math.random()*1.6 - 0.8);
+            const offy = (Math.random()*1.6 - 0.8);
+            stains.push({
+                tileX: cx, tileY: cy,
+                ox: offx, oy: offy,
+                radius: size,
+                baseAlpha: 0.2 + Math.random()*0.5,
+                hue: 12 + Math.random()*20,
+                phase: Math.random()*Math.PI*2
+            });
+        }
+    }
+
+
+    function generateArrows(count = 60) {
+        wallArrows = new Map();
+        arrows = [];
+        const max = Math.min(count, Math.floor(floorCells.length * 0.18));
+        let attempts = 0;
+        while (arrows.length < max && attempts < max*6) {
+            attempts++;
+            const [cx,cy] = floorCells[Math.floor(Math.random()*floorCells.length)];
+            if (Math.abs(cx - Math.floor(player.x)) + Math.abs(cy - Math.floor(player.y)) < 4) continue;
+            // pick a wall tile adjacent to this floor cell
+            const dirs = [[1,0,0],[0,1,1],[-1,0,2],[0,-1,3]]; // dx,dy,dir
+            const d = dirs[Math.floor(Math.random()*4)];
+            const nx = cx + d[0], ny = cy + d[1];
+            if (nx<=0||ny<=0||nx>=COLS-1||ny>=ROWS-1) continue;
+            if (map[ny][nx] !== 1) continue;
+            const key = `${nx},${ny}`;
+            if (wallArrows.has(key)) continue;
+            const a = {x: nx+0.5, y: ny+0.5, dir: d[2], size: 0.5 + Math.random()*0.8};
+            wallArrows.set(key, a);
+            arrows.push(a);
+        }
+    }
+
+
+    function generateItems(count = 24) {
+        items = [];
+        const max = Math.min(count, Math.floor(floorCells.length * 0.18));
+        let tries = 0;
+        while (items.length < max && tries < max*6) {
+            tries++;
+            const [cx,cy] = floorCells[Math.floor(Math.random()*floorCells.length)];
+            if (Math.abs(cx - Math.floor(player.x)) + Math.abs(cy - Math.floor(player.y)) < 4) continue;
+            if (Math.random() < 0.6) continue; // sparse
+            items.push({
+                x: cx + 0.5,
+                y: cy + 0.5,
+                type: 'Almond Water',
+                picked: false,
+                bobPhase: Math.random()*Math.PI*2
+            });
+        }
+    }
+
+
+    function randFloorFarFrom(px,py,minDist=8){
+        const candidates = floorCells.filter(([x,y]) => Math.abs(x-px)+Math.abs(y-py) >= minDist);
+        if (candidates.length===0) return [px,py];
+        return candidates[Math.floor(Math.random()*candidates.length)];
+    }
+
+
+    // enemies: wirey, black
+    function spawnEnemies() {
+        enemies = [];
+        const [px,py] = [Math.floor(player.x), Math.floor(player.y)];
+        for (let i=0;i<ENEMY_COUNT;i++) {
+            const [ex,ey] = randFloorFarFrom(px,py,spawnMinDist);
+            enemies.push({
+                x: ex+0.5,
+                y: ey+0.5,
+                speed: ENEMY_SPEED * (1 + Math.random()*0.15),
+                path: [],
+                pathTick: 0,
+                hush: Math.random()*0.6,
+                pulsate: Math.random()*2.2,
+                lastScream: 0,
+                terrifying: true,
+                jitter: Math.random()*1.6,
+                roamTarget: null,
+                roamTimer: 0,
+                // scan timer so every SCAN_INTERVAL seconds the enemy "knows" your location
+                scanTimer: Math.random() * SCAN_INTERVAL,
+                lastKnownPlayer: null
+            });
+        }
+    }
+
+
+    let gameOver = false;
+    let time = 0;
+
+
+    // menu state
+    let menuOpen = true;
+    const menuEl = document.getElementById('menu');
+    const startBtn = document.getElementById('startBtn');
+    const resumeBtn = document.getElementById('resumeBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const soundBtn = document.getElementById('soundBtn');
+    const enemyCountRange = document.getElementById('enemyCount');
+    const enemyCountVal = document.getElementById('enemyCountVal');
+    const spawnDistRange = document.getElementById('spawnDist');
+    const spawnDistVal = document.getElementById('spawnDistVal');
+    const enemySpeedRange = document.getElementById('enemySpeed');
+    const enemySpeedVal = document.getElementById('enemySpeedVal');
+    const sightRangeRange = document.getElementById('sightRange');
+    const sightRangeVal = document.getElementById('sightRangeVal');
+
+
+    function showMenu(showResume = false) {
+        menuOpen = true;
+        menuEl.style.display = 'flex';
+        resumeBtn.style.display = showResume ? 'inline-block' : 'none';
+    }
+    function hideMenu() {
+        menuOpen = false;
+        menuEl.style.display = 'none';
+        // request pointer lock for immersive play
+        try { canvas.requestPointerLock?.(); } catch(e){}
+    }
+
+
+    startBtn.addEventListener('click', () => {
+        hideMenu();
+        // ensure sound hint is visible (user interaction)
+        startElevatorSoundOnce();
+    });
+    resumeBtn.addEventListener('click', () => {
+        hideMenu();
+    });
+    restartBtn.addEventListener('click', () => {
+        reset();
+        showMenu(false);
+    });
+    soundBtn.addEventListener('click', () => {
+        if (!audioStarted) {
+            startElevatorSoundOnce();
+            soundBtn.textContent = 'Sound: On';
+        } else {
+            // toggle mute (just adjust masterGain if available)
+            if (masterGain) {
+                masterGain.gain.value = masterGain.gain.value > 0 ? 0 : 0.06;
+            }
+            soundBtn.textContent = masterGain && masterGain.gain.value > 0 ? 'Sound: On' : 'Sound: Muted';
+        }
+    });
+
+
+    // enemy count and spawn dist controls
+    enemyCountRange.addEventListener('input', () => {
+        ENEMY_COUNT = parseInt(enemyCountRange.value,10);
+        enemyCountVal.textContent = ENEMY_COUNT;
+        // respawn enemies to reflect change immediately
+        spawnEnemies();
+    });
+    spawnDistRange.addEventListener('input', () => {
+        spawnMinDist = parseInt(spawnDistRange.value,10);
+        spawnDistVal.textContent = spawnMinDist;
+    });
+
+
+    // enemy speed control
+    enemySpeedRange.addEventListener('input', () => {
+        ENEMY_SPEED = parseFloat(enemySpeedRange.value);
+        enemySpeedVal.textContent = ENEMY_SPEED.toFixed(1);
+        // apply to existing enemies (preserve random variations)
+        for (const e of enemies) e.speed = ENEMY_SPEED * (1 + Math.random()*0.15);
+    });
+    // sight range control
+    sightRangeRange.addEventListener('input', () => {
+        SIGHT_RANGE = parseInt(sightRangeRange.value,10);
+        sightRangeVal.textContent = SIGHT_RANGE;
+    });
+
+
+    // input: ESC opens/closes menu
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (menuOpen) {
+                hideMenu();
+            } else {
+                showMenu(true);
+            }
+        }
+    });
+
+
+    function reset() {
+        generateMap();
+        player.x = Math.floor(COLS/2)+0.5;
+        player.y = Math.floor(ROWS/2)+0.5;
+        player.speed = 3.8;
+        player.angle = Math.random()*Math.PI*2;
+        player.almondWater = 0;
+        gameOver = false;
+        time = 0;
+        generateStains(120);
+        generateArrows(60);
+        generateItems(28);
+        spawnEnemies();
+    }
+
+
+    generateMap();
+    generateStains();
+    generateArrows();
+    generateItems();
+    spawnEnemies();
+
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if (e.key.toLowerCase() === 'r') reset();
+        startElevatorSoundOnce();
+    });
+    window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+
+    canvas.addEventListener('click', () => {
+        canvas.requestPointerLock?.();
+        startElevatorSoundOnce();
+    });
+
+
+    let pointerLocked = false;
+    document.addEventListener('pointerlockchange', () => {
+        pointerLocked = document.pointerLockElement === canvas;
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (pointerLocked && !menuOpen) {
+            player.angle += e.movementX * 0.0025;
+        }
+    });
+
+
+    function canWalkTo(nx,ny) {
+        const gx = Math.floor(nx), gy = Math.floor(ny);
+        if (gx<0||gy<0||gx>=COLS||gy>=ROWS) return false;
+        return map[gy][gx] === 0;
+    }
+
+
+    // line-of-sight check between two world positions (continuous) - returns true if no wall intersects
+    function hasLineOfSight(x0,y0,x1,y1) {
+        const dx = x1 - x0, dy = y1 - y0;
+        const dist = Math.hypot(dx,dy);
+        const steps = Math.max(8, Math.floor(dist * 6)); // sample density
+        for (let i=1; i<steps; i++) {
+            const t = i / steps;
+            const sx = x0 + dx * t;
+            const sy = y0 + dy * t;
+            const gx = Math.floor(sx), gy = Math.floor(sy);
+            if (gx < 0 || gy < 0 || gx >= COLS || gy >= ROWS) return false;
+            if (map[gy][gx] === 1) return false;
+        }
+        return true;
+    }
+
+
+    // audio (same as before)
+    let audioStarted = false;
+    let audioCtx = null;
+    let masterGain = null;
+    let droneNodes = null;
+    let noiseBurstInterval = null;
+
+
+    function startElevatorSoundOnce() {
+        if (audioStarted) {
+            // ensure masterGain present
+            if (masterGain) masterGain.gain.value = masterGain.gain.value || 0.06;
+            return;
+        }
+        audioStarted = true;
+        document.getElementById('soundHint').textContent = 'Ambient sound enabled';
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            masterGain = audioCtx.createGain();
+            masterGain.gain.value = 0.06;
+            masterGain.connect(audioCtx.destination);
+
+
+            const baseOscs = [];
+            const mainGain = audioCtx.createGain();
+            mainGain.gain.value = 0.9;
+            mainGain.connect(masterGain);
+
+
+            for (let i=0;i<3;i++){
+                const osc = audioCtx.createOscillator();
+                osc.type = i===1 ? 'sawtooth' : (i===2 ? 'triangle' : 'sine');
+                osc.frequency.value = 30 + i*6 + Math.random()*10;
+                const g = audioCtx.createGain();
+                g.gain.value = 0.02 + Math.random()*0.015;
+                const lfo = audioCtx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = 0.03 + Math.random()*0.05;
+                const lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 5 + Math.random()*8;
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc.frequency);
+                osc.connect(g);
+                g.connect(mainGain);
+                osc.start();
+                lfo.start();
+                baseOscs.push({osc, lfo, g});
+            }
+
+
+            droneNodes = {baseOscs, mainGain};
+
+
+            const noiseBuffer = makeNoiseBuffer(audioCtx, 1.4);
+            function playCreak() {
+                const src = audioCtx.createBufferSource();
+                src.buffer = noiseBuffer;
+                const flt = audioCtx.createBiquadFilter();
+                flt.type = 'bandpass';
+                flt.frequency.value = 300 + Math.random()*1500;
+                flt.Q.value = 0.6 + Math.random()*1.5;
+                const g = audioCtx.createGain();
+                g.gain.value = 0.0;
+                src.connect(flt);
+                flt.connect(g);
+                g.connect(masterGain);
+                const now = audioCtx.currentTime;
+                g.gain.setValueAtTime(0.001, now);
+                g.gain.linearRampToValueAtTime(0.12 + Math.random()*0.08, now + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, now + 0.8 + Math.random()*1.8);
+                src.start(now);
+                src.stop(now + 1.2 + Math.random()*1.8);
+            }
+            noiseBurstInterval = setInterval(playCreak, 1200 + Math.random()*2500);
+            setTimeout(playCreak, 400);
+        } catch (e) {
+            console.warn('WebAudio not available', e);
+            document.getElementById('soundHint').textContent = 'Sound unavailable';
+        }
+    }
+
+
+    function makeNoiseBuffer(ctx, seconds = 1.4) {
+        const sr = ctx.sampleRate;
+        const buffer = ctx.createBuffer(1, Math.floor(sr * seconds), sr);
+        const data = buffer.getChannelData(0);
+        let b0 = 0, b1 = 0, b2 = 0;
+        for (let i=0;i<data.length;i++){
+            const white = Math.random()*2-1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520;
+            data[i] = b0 + b1 + b2 + white * 0.5362;
+            data[i] *= 0.2;
+        }
+        return buffer;
+    }
+
+
+    function enemyScream(intensity=1.0) {
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const src = audioCtx.createOscillator();
+        src.type = 'sawtooth';
+        src.frequency.value = 220 + Math.random()*320 * intensity;
+        const g = audioCtx.createGain();
+        g.gain.value = 0.0001;
+        const flt = audioCtx.createBiquadFilter();
+        flt.type = 'highpass';
+        flt.frequency.value = 400 + Math.random()*400;
+        src.connect(flt);
+        flt.connect(g);
+        g.connect(masterGain);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.12*intensity, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.00001, now + 0.6 + Math.random()*0.8);
+        src.start(now);
+        src.stop(now + 1.0 + Math.random()*0.9);
+    }
+
+
+    // Remove blue-channel postprocess: zero blue across drawn frame.
+    // Call this at the end of your render pass to eliminate blue tint/lining.
+    function removeBlueFromCanvas(ctx, x = 0, y = 0, w = ctx.canvas.width, h = ctx.canvas.height) {
+        try {
+            const img = ctx.getImageData(x, y, w, h);
+            const d = img.data;
+            for (let i = 2; i < d.length; i += 4) d[i] = 0;
+            ctx.putImageData(img, x, y);
+        } catch (e) {
+            // getImageData may fail on cross-origin canvases; ignore if so
+        }
+    }
+
+
+    let last = performance.now();
+    function loop(now) {
+        const dt = Math.min(0.05, (now - last)/1000);
+        last = now;
+        if (!gameOver && !menuOpen) update(dt);
+        render3D();
+        requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+
+    function update(dt) {
+        time += dt;
+        const moveForward = keys['w'] || keys['arrowup'];
+        const moveBack = keys['s'] || keys['arrowdown'];
+        const moveLeft = keys['a'];
+        const moveRight = keys['d'];
+        const turnLeft = keys['arrowleft'] || keys['q'];
+        const turnRight = keys['arrowright'] || keys['e'];
+
+
+        if (turnLeft) player.angle -= 1.8 * dt;
+        if (turnRight) player.angle += 1.8 * dt;
+
+
+        let vx = 0, vy = 0;
+        if (moveForward) { vx += Math.cos(player.angle); vy += Math.sin(player.angle); }
+        if (moveBack) { vx -= Math.cos(player.angle); vy -= Math.sin(player.angle); }
+        if (moveLeft) { vx += Math.cos(player.angle - Math.PI/2); vy += Math.sin(player.angle - Math.PI/2); }
+        if (moveRight) { vx += Math.cos(player.angle + Math.PI/2); vy += Math.sin(player.angle + Math.PI/2); }
+
+
+        if (vx !== 0 || vy !== 0) {
+            const len = Math.hypot(vx,vy);
+            vx /= len; vy /= len;
+            const speed = player.speed * (1 + 0.08*Math.sin(time*8));
+            const nx = player.x + vx * speed * dt;
+            const ny = player.y + vy * speed * dt;
+            if (canWalkTo(nx, player.y)) player.x = nx;
+            if (canWalkTo(player.x, ny)) player.y = ny;
+            player.bob = Math.sin(time*8) * 2 + 2;
+        } else {
+            player.bob = 0;
+        }
+
+
+        // pickup items automatically when close
+        for (let i = items.length-1; i >= 0; i--) {
+            const it = items[i];
+            const d = Math.hypot(it.x - player.x, it.y - player.y);
+            if (d < 0.7) {
+                player.almondWater++;
+                items.splice(i,1);
+                // small chime (optional)
+                if (audioCtx) {
+                    const o = audioCtx.createOscillator();
+                    const g = audioCtx.createGain();
+                    o.type = 'sine';
+                    o.frequency.value = 720 + Math.random()*80;
+                    g.gain.value = 0.002;
+                    o.connect(g); g.connect(masterGain);
+                    o.start(); o.stop(audioCtx.currentTime + 0.12);
+                }
+            }
+        }
+
+
+        for (const e of enemies) {
+            e.pathTick -= dt;
+            // periodic scan so enemy won't just camp a corner:
+            e.scanTimer -= dt;
+            if (e.scanTimer <= 0) {
+                e.scanTimer += SCAN_INTERVAL;
+                // "see" the player's current grid location and set a path to it (even if currently out of sight)
+                const targetGX = Math.floor(player.x);
+                const targetGY = Math.floor(player.y);
+                const exg = Math.floor(e.x), eyg = Math.floor(e.y);
+                const forcedPath = findPath(exg, eyg, targetGX, targetGY);
+                if (forcedPath && forcedPath.length>0) {
+                    e.path = forcedPath;
+                    e.pathTick = 0.18 + Math.random()*0.3;
+                    e.lastKnownPlayer = {x: player.x, y: player.y, t: time};
+                }
+            }
+
+
+            const exg = Math.floor(e.x), eyg = Math.floor(e.y);
+            const pgx = Math.floor(player.x), pgy = Math.floor(player.y);
+
+
+            const dx = player.x - e.x, dy = player.y - e.y;
+            const distToPlayer = Math.hypot(dx,dy);
+            const sees = distToPlayer <= SIGHT_RANGE && hasLineOfSight(e.x, e.y, player.x, player.y);
+
+
+            if (sees) {
+                // actively chase when in sight
+                if (e.pathTick <= 0 || !e.path || e.path.length === 0) {
+                    const path = findPath(exg, eyg, pgx, pgy);
+                    e.path = path || [];
+                    e.pathTick = 0.25 + Math.random()*0.45;
+                    e.lastKnownPlayer = {x: player.x, y: player.y, t: time};
+                }
+            } else {
+                // idle / roam behavior when not seeing player - slowly pick random roam targets
+                e.roamTimer -= dt;
+                if ((!e.path || e.path.length === 0) && e.roamTimer <= 0) {
+                    // pick a random nearby floor cell to stroll toward
+                    const candidates = floorCells.filter(([x,y]) => {
+                        const md = Math.abs(x - exg) + Math.abs(y - eyg);
+                        return md >= 2 && md <= 8;
+                    });
+                    if (candidates.length > 0) {
+                        const [tx,ty] = candidates[Math.floor(Math.random()*candidates.length)];
+                        e.path = findPath(exg, eyg, tx, ty) || [];
+                    }
+                    e.roamTimer = 1.2 + Math.random()*4.0;
+                }
+            }
+
+
+            if (e.path && e.path.length>0) {
+                const [tx,ty] = e.path[0];
+                const txc = tx+0.5, tyc = ty+0.5;
+                const vx2 = txc - e.x, vy2 = tyc - e.y;
+                const dist = Math.hypot(vx2,vy2);
+                if (dist < 0.08) {
+                    e.path.shift();
+                } else {
+                    // base speed scaled by global ENEMY_SPEED (already set on spawn/change)
+                    const adjSpeed = e.speed * (1 + (sees ? Math.max(0, 1.2 - dist)*0.8 : 0));
+                    e.x += (vx2/dist) * adjSpeed * dt;
+                    e.y += (vy2/dist) * adjSpeed * dt;
+                }
+            }
+
+
+            const d = Math.hypot(e.x - player.x, e.y - player.y);
+            if (d < 0.9) {
+                gameOver = true;
+                enemyScream(2.0);
+                showMenu(true);
+            } else if (d < 3.5 && sees) {
+                if (time - e.lastScream > 1.2 + Math.random()*1.4) {
+                    e.lastScream = time;
+                    enemyScream(0.6 + (3.5 - d) * 0.6);
+                }
+            }
+        }
+    }
+
+
+    // 3D renderer + sprites (wall decals, items, enemy)
+    function render3D() {
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+
+
+        const FOV = Math.PI/3.0;
+        const HALF_FOV = FOV/2;
+        const numRays = canvas.width;
+        const viewDist = (canvas.width / 2) / Math.tan(HALF_FOV);
+        const rayStep = FOV / numRays;
+
+
+        // ceiling & floor
+        const ceilGrad = ctx.createLinearGradient(0, 0, 0, canvas.height/2);
+        ceilGrad.addColorStop(0, '#f6f1d3'); // pale yellow-ish ceiling
+        ceilGrad.addColorStop(1, '#ddd1a0');
+        ctx.fillStyle = ceilGrad;
+        ctx.fillRect(0,0,canvas.width,canvas.height/2);
+
+
+        const floorGrad = ctx.createLinearGradient(0, canvas.height/2, 0, canvas.height);
+        floorGrad.addColorStop(0, '#d8caa3');
+        floorGrad.addColorStop(1, '#a8926b');
+        ctx.fillStyle = floorGrad;
+        ctx.fillRect(0, canvas.height/2, canvas.width, canvas.height/2);
+
+
+        const bobOffset = Math.sin(time*8) * (player.bob * 0.5);
+
+
+        // simple raycast rendering of walls with pale yellow/backrooms look
+        for (let col=0; col<numRays; col+=1) {
+            const rayScreenPos = (col - numRays/2);
+            const rayAngle = player.angle + (rayScreenPos / (numRays/2)) * HALF_FOV;
+            let ra = rayAngle;
+            const rx = Math.cos(ra);
+            const ry = Math.sin(ra);
+            let mapX = Math.floor(player.x), mapY = Math.floor(player.y);
+            const deltaDistX = Math.abs(1 / rx);
+            const deltaDistY = Math.abs(1 / ry);
+            let stepX, stepY;
+            let sideDistX, sideDistY;
+            if (rx < 0) {
+                stepX = -1;
+                sideDistX = (player.x - mapX) * deltaDistX;
+            } else {
+                stepX = 1;
+                sideDistX = (mapX + 1.0 - player.x) * deltaDistX;
+            }
+            if (ry < 0) {
+                stepY = -1;
+                sideDistY = (player.y - mapY) * deltaDistY;
+            } else {
+                stepY = 1;
+                sideDistY = (mapY + 1.0 - player.y) * deltaDistY;
+            }
+
+
+            let hit = false;
+            let side = 0;
+            let depth = 0;
+            let maxDepth = 60;
+            while (!hit && depth < maxDepth) {
+                if (sideDistX < sideDistY) {
+                    sideDistX += deltaDistX;
+                    mapX += stepX;
+                    side = 0;
+                } else {
+                    sideDistY += deltaDistY;
+                    mapY += stepY;
+                    side = 1;
+                }
+                if (mapX < 0 || mapY < 0 || mapX >= COLS || mapY >= ROWS) { hit = true; depth = maxDepth; break; }
+                if (map[mapY][mapX] === 1) hit = true;
+                depth++;
+            }
+
+
+            let perpWallDist;
+            if (side === 0) {
+                perpWallDist = (mapX - player.x + (1 - stepX)/2) / rx;
+            } else {
+                perpWallDist = (mapY - player.y + (1 - stepY)/2) / ry;
+            }
+            if (perpWallDist <= 0.0001) perpWallDist = 0.0001;
+
+
+            const lineHeight = Math.floor((TILE / perpWallDist) * (viewDist / 32));
+            const drawStart = Math.floor((canvas.height/2) - lineHeight/2 + bobOffset);
+            const drawEnd = Math.floor((canvas.height/2) + lineHeight/2 + bobOffset);
+
+
+            // pale yellow walls (old/backrooms look)
+            let shade = 1.0 - Math.min(0.85, perpWallDist * 0.05);
+            let color;
+            if (side === 0) {
+                color = `rgb(${Math.floor(255*shade)},${Math.floor(245*shade)},${Math.floor(170*shade)})`;
+            } else {
+                color = `rgb(${Math.floor(220*shade)},${Math.floor(210*shade)},${Math.floor(140*shade)})`;
+            }
+
+
+            let stainMultiplier = 1.0;
+            for (const s of stains) {
+                if (s.tileX === mapX && s.tileY === mapY) {
+                    stainMultiplier -= 0.35;
+                    break;
+                }
+            }
+
+
+            ctx.fillStyle = shadeColor(color, stainMultiplier);
+            ctx.fillRect(col, drawStart, 1, Math.max(0, drawEnd - drawStart));
+            ctx.fillStyle = 'rgba(0,0,0,0.02)';
+            ctx.fillRect(col, drawStart, 1, 1);
+
+
+            // draw a small wall-mounted arrow decal if this wall tile has one
+            const key = `${mapX},${mapY}`;
+            if (wallArrows.has(key)) {
+                const decal = wallArrows.get(key);
+                // compute vertical position on wall column (near mid-height)
+                const wallHeight = drawEnd - drawStart;
+                if (wallHeight > 8) {
+                    const yCenter = drawStart + Math.floor(wallHeight * 0.38);
+                    ctx.save();
+                    ctx.globalAlpha = 0.95 * (1 - Math.min(0.9, perpWallDist / 18));
+                    // small plaque
+                    const plaqueW = Math.max(4, Math.floor(6 + 16 / (perpWallDist*0.6)));
+                    const plaqueH = Math.max(4, Math.floor(plaqueW * 0.6));
+                    ctx.fillStyle = 'rgba(220,200,140,0.98)';
+                    ctx.fillRect(col - Math.floor(plaqueW/2), yCenter - Math.floor(plaqueH/2), plaqueW, plaqueH);
+                    ctx.strokeStyle = 'rgba(40,30,20,0.95)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(col - Math.floor(plaqueW/2), yCenter - Math.floor(plaqueH/2), plaqueW, plaqueH);
+                    // arrow (black triangle) - draw oriented according to decal.dir
+                    ctx.fillStyle = 'rgba(40,20,10,0.98)';
+                    ctx.beginPath();
+                    // arrow always points "right" relative to decal.dir mapping 0=right,1=down,2=left,3=up
+                    const cx = col, cy = yCenter;
+                    const s = Math.max(2, Math.floor(plaqueW*0.4));
+                    if (decal.dir === 0) { // right
+                        ctx.moveTo(cx - s, cy - Math.floor(plaqueH*0.3));
+                        ctx.lineTo(cx - s, cy + Math.floor(plaqueH*0.3));
+                        ctx.lineTo(cx + s, cy);
+                    } else if (decal.dir === 2) { // left
+                        ctx.moveTo(cx + s, cy - Math.floor(plaqueH*0.3));
+                        ctx.lineTo(cx + s, cy + Math.floor(plaqueH*0.3));
+                        ctx.lineTo(cx - s, cy);
+                    } else if (decal.dir === 1) { // down
+                        ctx.moveTo(cx - Math.floor(plaqueW*0.3), cy - s);
+                        ctx.lineTo(cx + Math.floor(plaqueW*0.3), cy - s);
+                        ctx.lineTo(cx, cy + s);
+                    } else { // up
+                        ctx.moveTo(cx - Math.floor(plaqueW*0.3), cy + s);
+                        ctx.lineTo(cx + Math.floor(plaqueW*0.3), cy + s);
+                        ctx.lineTo(cx, cy - s);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+        }
+
+
+        // build sprites list: items and enemy
+        const sprites = [];
+
+
+        for (const it of items) {
+            const dx = it.x - player.x;
+            const dy = it.y - player.y;
+            const dist = Math.hypot(dx,dy);
+            let ang = Math.atan2(dy,dx) - player.angle;
+            while (ang < -Math.PI) ang += Math.PI*2;
+            while (ang > Math.PI) ang -= Math.PI*2;
+            if (Math.abs(ang) < (Math.PI/3) && dist < 20) {
+                sprites.push({type:'item', obj:it, dist, ang});
+            }
+        }
+
+
+        for (const e of enemies) {
+            const dx = e.x - player.x;
+            const dy = e.y - player.y;
+            const dist = Math.hypot(dx,dy);
+            let ang = Math.atan2(dy,dx) - player.angle;
+            while (ang < -Math.PI) ang += Math.PI*2;
+            while (ang > Math.PI) ang -= Math.PI*2;
+            if (Math.abs(ang) < (Math.PI/3)) {
+                sprites.push({type:'enemy', obj:e, dist, ang});
+            }
+        }
+
+
+        sprites.sort((a,b) => b.dist - a.dist);
+
+
+        for (const s of sprites) {
+            if (s.type === 'item') {
+                const it = s.obj;
+                const dist = Math.max(0.2, s.dist);
+                const size = (TILE / dist) * (canvas.width/2) * 0.03;
+                const screenX = (canvas.width/2) * (1 + Math.tan(s.ang) / Math.tan(Math.PI/6));
+                const bob = Math.sin(time*3 + it.bobPhase) * 4;
+                const screenY = canvas.height/2 + bob * 0.5;
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.globalAlpha = 0.95 * (1 - Math.min(0.9, dist / 18));
+                // small bottle: body + cap
+                const bw = Math.max(6, size*8);
+                const bh = Math.max(10, size*14);
+                ctx.fillStyle = 'rgba(180,225,240,0.95)';
+                roundRect(ctx, -bw/2, -bh/2, bw, bh, Math.max(1, bw*0.18));
+                ctx.fill();
+                ctx.fillStyle = 'rgba(200,120,80,0.95)';
+                ctx.fillRect(-bw/6, -bh/2 - 3, bw/3, 4);
+                ctx.restore();
+            } else if (s.type === 'enemy') {
+                const e = s.obj;
+                const dist = Math.max(0.3, s.dist);
+                const baseSize = Math.min(canvas.height*1.2, (TILE / dist) * (canvas.width/2) * 0.45);
+                const screenX = (canvas.width/2) * (1 + Math.tan(s.ang) / Math.tan(Math.PI/6));
+                const screenY = canvas.height/2 + bobOffset * 0.9 - baseSize*0.18;
+
+
+                // wirey black figure (same as previous)
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.globalAlpha = Math.max(0.06, 1.1 - (dist*0.28));
+                const layers = 4;
+                for (let L=0; L<layers; L++) {
+                    const jitter = 1.2 + L*0.6;
+                    ctx.beginPath();
+                    ctx.lineWidth = Math.max(0.9, Math.min(3, baseSize*0.02 - L*0.12));
+                    ctx.strokeStyle = `rgba(6,6,6,${0.9 - L*0.18})`;
+                    const headX = Math.sin(time*2 + e.pulsate*3 + L)*jitter*0.6;
+                    const headY = -baseSize*0.45 + Math.cos(time*3 + L)*jitter*0.6;
+                    ctx.moveTo(headX + 3, headY);
+                    ctx.arc(headX, headY, Math.max(3, baseSize*0.045 - L*0.6), 0, Math.PI*2);
+                    let prevX = headX, prevY = headY + Math.max(4, baseSize*0.02);
+                    const segments = 5;
+                    for (let seg=1; seg<=segments; seg++) {
+                        const nx = headX + (Math.random()*2-1)*jitter*seg*0.3 + (Math.sin(time*3 + e.jitter*seg + L)*jitter*0.3);
+                        const ny = headY + seg * (baseSize*0.12);
+                        ctx.moveTo(prevX, prevY);
+                        ctx.lineTo(nx, ny);
+                        prevX = nx; prevY = ny;
+                    }
+                    const limbLen = baseSize*0.22;
+                    const armY = headY + baseSize*0.12;
+                    const leftArmX = prevX - limbLen*0.5 + Math.sin(time*5+L)*jitter*0.4;
+                    const rightArmX = prevX + limbLen*0.5 + Math.cos(time*4+L)*jitter*0.4;
+                    ctx.moveTo(prevX - 2, armY);
+                    ctx.lineTo(leftArmX, armY + limbLen*0.2 + Math.sin(time*4+L)*jitter);
+                    ctx.moveTo(prevX + 2, armY);
+                    ctx.lineTo(rightArmX, armY + limbLen*0.25 + Math.cos(time*5+L)*jitter);
+                    const legStartY = prevY;
+                    ctx.moveTo(prevX - 1, legStartY);
+                    ctx.lineTo(prevX - limbLen*0.5 + Math.cos(time*3+L)*jitter, legStartY + limbLen);
+                    ctx.moveTo(prevX + 1, legStartY);
+                    ctx.lineTo(prevX + limbLen*0.5 + Math.sin(time*3+L)*jitter, legStartY + limbLen);
+                    ctx.stroke();
+                }
+                ctx.lineWidth = 0.8;
+                ctx.strokeStyle = 'rgba(10,10,10,0.85)';
+                for (let t=0;t<6;t++){
+                    ctx.beginPath();
+                    const sx = Math.sin(time*2 + t) * 2;
+                    const sy = -baseSize*0.35 + Math.cos(time*1.6 + t)*1.5;
+                    ctx.moveTo(sx, sy);
+                    for (let k=1;k<6;k++){
+                        ctx.lineTo(sx + Math.sin(time*3 + k + t)*k*0.6, sy + k*6 + Math.cos(time*2 + k + t)*1.2);
+                    }
+                    ctx.stroke();
+                }
+                ctx.restore();
+
+
+                if (s.dist < 3.2) {
+                    const intensity = Math.min(0.9, 1.6 - s.dist*0.45);
+                    ctx.save();
+                    ctx.fillStyle = `rgba(10,10,10,${0.06 * intensity})`;
+                    ctx.fillRect(0,0,canvas.width,canvas.height);
+                    ctx.restore();
+                }
+            }
+        }
+
+
+        drawHUD();
+
+
+        if (gameOver) {
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = '#ff6b6b';
+            ctx.font = '48px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU WERE CAUGHT', canvas.width/2, canvas.height/2 - 20);
+            ctx.font = '18px sans-serif';
+            ctx.fillText('Press R to restart', canvas.width/2, canvas.height/2 + 24);
+            ctx.textAlign = 'left';
+        }
+
+
+        // Remove blue channel across the final frame to eliminate blue lining/tint.
+        removeBlueFromCanvas(ctx);
+    }
+
+
+    function shadeColor(rgbStr, mul) {
+        const parts = rgbStr.match(/(\d+),\s*(\d+),\s*(\d+)/);
+        if (!parts) return rgbStr;
+        let r = Math.floor(parseInt(parts[1]) * mul);
+        let g = Math.floor(parseInt(parts[2]) * mul);
+        let b = Math.floor(parseInt(parts[3]) * mul);
+        r = Math.max(0,Math.min(255,r));
+        g = Math.max(0,Math.min(255,g));
+        b = Math.max(0,Math.min(255,b));
+        return `rgb(${r},${g},${b})`;
+    }
+
+
+    function drawHUD() {
+        const mapScale = Math.min(120 / Math.max(COLS, ROWS), 6);
+        const mapW = COLS * mapScale;
+        const mapH = ROWS * mapScale;
+        const mx = 12, my = 12;
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(mx-6, my-6, mapW+12, mapH+56);
+        for (let y=0;y<ROWS;y++){
+            for (let x=0;x<COLS;x++){
+                const v = map[y][x];
+                if (v === 0) ctx.fillStyle = '#efe7a7';
+                else ctx.fillStyle = '#8f7b55';
+                ctx.fillRect(mx + x*mapScale, my + y*mapScale, mapScale, mapScale);
+            }
+        }
+        for (const s of stains) {
+            if (s.tileX < 0 || s.tileY < 0 || s.tileX >= COLS || s.tileY >= ROWS) continue;
+            ctx.fillStyle = `rgba(80,40,30,${Math.min(0.9,s.baseAlpha+0.1)})`;
+            ctx.fillRect(mx + s.tileX*mapScale, my + s.tileY*mapScale, Math.max(1,mapScale*0.9), Math.max(1,mapScale*0.9));
+        }
+        for (const a of arrows) {
+            ctx.save();
+            ctx.translate(mx + a.x*mapScale, my + a.y*mapScale);
+            ctx.rotate((Math.PI/2) * a.dir);
+            ctx.fillStyle = '#ffdd88';
+            ctx.beginPath();
+            ctx.moveTo(-mapScale*0.6, -mapScale*0.25);
+            ctx.lineTo(mapScale*0.3, -mapScale*0.25);
+            ctx.lineTo(mapScale*0.3, -mapScale*0.5);
+            ctx.lineTo(mapScale*0.7, 0);
+            ctx.lineTo(mapScale*0.3, mapScale*0.5);
+            ctx.lineTo(mapScale*0.3, mapScale*0.25);
+            ctx.lineTo(-mapScale*0.6, mapScale*0.25);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#110b06';
+            ctx.stroke();
+            ctx.restore();
+        }
+        for (const it of items) {
+            ctx.fillStyle = 'rgba(180,225,240,0.95)';
+            ctx.fillRect(mx + (it.x-0.25)*mapScale, my + (it.y-0.5)*mapScale, Math.max(1,mapScale*0.6), Math.max(1,mapScale*0.9));
+            ctx.strokeStyle = '#332414';
+            ctx.strokeRect(mx + (it.x-0.25)*mapScale, my + (it.y-0.5)*mapScale, Math.max(1,mapScale*0.6), Math.max(1,mapScale*0.9));
+        }
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(mx + player.x*mapScale, my + player.y*mapScale, Math.max(2, mapScale*0.8), 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(mx + player.x*mapScale, my + player.y*mapScale);
+        ctx.lineTo(mx + (player.x + Math.cos(player.angle)*0.8)*mapScale, my + (player.y + Math.sin(player.angle)*0.8)*mapScale);
+        ctx.stroke();
+
+
+        for (const e of enemies) {
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(mx + e.x*mapScale, my + e.y*mapScale, Math.max(1,mapScale*0.9), 0, Math.PI*2);
+            ctx.fill();
+        }
+
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px monospace';
+        ctx.fillText(`Enemy: ${enemies.length}`, mx, my + mapH + 18);
+        ctx.fillText(`Almond Water: ${player.almondWater}`, mx + 90, my + mapH + 18);
+        ctx.fillText(`Time: ${Math.floor(time)}s`, mx + 220, my + mapH + 18);
+        ctx.restore();
+    }
+
+
+    function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x+r, y);
+        ctx.arcTo(x+w, y, x+w, y+h, r);
+        ctx.arcTo(x+w, y+h, x, y+h, r);
+        ctx.arcTo(x, y+h, x, y, r);
+        ctx.arcTo(x, y, x+w, y, r);
+        ctx.closePath();
+    }
+
+
+    // cleanup
+    window.addEventListener('beforeunload', () => {
+        if (audioCtx) audioCtx.close();
+    });
+
+
+    window.addEventListener('resize', () => {
+        canvas.width = Math.min(window.innerWidth - 24, 1200);
+        canvas.height = Math.min(window.innerHeight - 48, 760);
+    });
+
+
+    // start
+    reset();
+    // show menu on load
+    showMenu(false);
+    enemyCountVal.textContent = ENEMY_COUNT;
+    spawnDistVal.textContent = spawnMinDist;
+    enemySpeedVal.textContent = ENEMY_SPEED.toFixed(1);
+    sightRangeVal.textContent = SIGHT_RANGE;
+
+
+    </script>
+    </body>
+    </html>
+
+
+
+
